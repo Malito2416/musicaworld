@@ -23,13 +23,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Expo Prebuild (Generate Native iOS Project)
+      - name: Expo Prebuild (Generate Native iOS Project & Pods)
         run: npx expo prebuild --platform ios --clean
-
-      - name: Install CocoaPods
-        run: |
-          cd ios
-          pod install
 
       - name: Build Unsigned Archive
         run: |
@@ -43,6 +38,7 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/$SCHEME.xcarchive" \
             archive \
             CODE_SIGN_IDENTITY="" \
