@@ -42,20 +42,8 @@ jobs:
 
       - name: Install CocoaPods Dependencies
         run: |
-          if ! command -v pod &> /dev/null; then
-            gem install cocoapods
-          fi
+          gem install cocoapods
           cd ios
-          # Patch Podfile to disable code signing across all pod targets
-          ruby -e '
-            podfile = File.read("Podfile")
-            patch = "    installer.pods_project.targets.each { |t| t.build_configurations.each { |c| c.build_settings[\"CODE_SIGNING_ALLOWED\"] = \"NO\"; c.build_settings[\"CODE_SIGNING_REQUIRED\"] = \"NO\" } }\n"
-            if podfile.include?("post_install do |installer|")
-              podfile.sub!("post_install do |installer|", "post_install do |installer|\n" + patch)
-              File.write("Podfile", podfile)
-              puts "Successfully patched Podfile post_install"
-            fi
-          '
           pod install
 
       - name: Build iOS Application (.app)
