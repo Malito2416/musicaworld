@@ -14,6 +14,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -23,23 +28,32 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Expo Prebuild (Generate Native iOS Project & Pods)
-        run: npx expo prebuild --platform ios --clean
+      - name: Generate Native iOS Files (Expo Prebuild)
+        run: npx expo prebuild --platform ios --clean --no-install
 
-      - name: Build Unsigned Archive
+      - name: Install CocoaPods Dependencies
+        run: |
+          gem install cocoapods
+          cd ios
+          pod install
+
+      - name: Build Xcode Archive
         run: |
           cd ios
-          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
-          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          if [ -d "MusicWorld.xcworkspace" ]; then
+            BUILD_TARGET="-workspace MusicWorld.xcworkspace"
+          else
+            BUILD_TARGET="-project MusicWorld.xcodeproj"
+          fi
 
-          echo "Compilando $SCHEME usando $WORKSPACE..."
+          echo "Compilando con $BUILD_TARGET..."
 
-          xcodebuild -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
+          xcodebuild $BUILD_TARGET \
+            -scheme "MusicWorld" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath "$RUNNER_TEMP/$SCHEME.xcarchive" \
+            -archivePath "$RUNNER_TEMP/MusicWorld.xcarchive" \
             archive \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -47,14 +61,10 @@ jobs:
 
       - name: Package into IPA for Sideloadly
         run: |
-          cd ios
-          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
-          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
-
-          mkdir -p "$RUNNER_TEMP/package/Payload"
-          cp -r "$RUNNER_TEMP/$SCHEME.xcarchive/Products/Applications/$SCHEME.app" "$RUNNER_TEMP/package/Payload/"
-          cd "$RUNNER_TEMP/package"
-          zip -qr "$RUNNER_TEMP/MusicWorld-unsigned.ipa" Payload
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -r "$RUNNER_TEMP/MusicWorld.xcarchive/Products/Applications/MusicWorld.app" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qr "MusicWorld-unsigned.ipa" Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
