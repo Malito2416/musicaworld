@@ -42,11 +42,23 @@ jobs:
 
       - name: Install CocoaPods Dependencies
         run: |
-          gem install cocoapods
+          if ! command -v pod &> /dev/null; then
+            gem install cocoapods
+          fi
           cd ios
+          # Patch Podfile to disable code signing across all pod targets
+          ruby -e '
+            podfile = File.read("Podfile")
+            patch = "    installer.pods_project.targets.each { |t| t.build_configurations.each { |c| c.build_settings[\"CODE_SIGNING_ALLOWED\"] = \"NO\"; c.build_settings[\"CODE_SIGNING_REQUIRED\"] = \"NO\" } }\n"
+            if podfile.include?("post_install do |installer|")
+              podfile.sub!("post_install do |installer|", "post_install do |installer|\n" + patch)
+              File.write("Podfile", podfile)
+              puts "Successfully patched Podfile post_install"
+            fi
+          '
           pod install
 
-      - name: Build Xcode Archive
+      - name: Build iOS Application (.app)
         run: |
           cd ios
           if [ -d "MusicWorld.xcworkspace" ]; then
@@ -57,23 +69,50 @@ jobs:
 
           echo "Compilando con $BUILD_TARGET..."
 
+          set -o pipefail
           xcodebuild $BUILD_TARGET \
             -scheme "MusicWorld" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath "$RUNNER_TEMP/MusicWorld.xcarchive" \
-            archive \
-            CODE_SIGN_IDENTITY="" \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            SYMROOT="$RUNNER_TEMP/products" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tee xcodebuild.log || {
+              echo "=========================================="
+              echo "         ERRORES DE COMPILACION           "
+              echo "=========================================="
+              grep -E -A 5 -B 2 "error:" xcodebuild.log || true
+              echo "=========================================="
+              echo "         ULTIMAS 60 LINEAS DEL LOG        "
+              echo "=========================================="
+              tail -n 60 xcodebuild.log
+              exit 1
+            }
 
       - name: Package into IPA for Sideloadly
         run: |
+          APP_DIR=$(find "$RUNNER_TEMP/products" -name "MusicWorld.app" -type d | head -n 1)
+          if [ -z "$APP_DIR" ]; then
+            APP_DIR=$(find "$RUNNER_TEMP/products" -name "*.app" -type d | head -n 1)
+          fi
+
+          if [ -z "$APP_DIR" ]; then
+            echo "Error: No se encontró la carpeta .app en $RUNNER_TEMP/products"
+            ls -laR "$RUNNER_TEMP/products" || true
+            exit 1
+          fi
+
+          echo "Empaquetando app encontrada en: $APP_DIR"
           mkdir -p "$RUNNER_TEMP/Payload"
-          cp -r "$RUNNER_TEMP/MusicWorld.xcarchive/Products/Applications/MusicWorld.app" "$RUNNER_TEMP/Payload/"
+          cp -r "$APP_DIR" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
           zip -qr "MusicWorld-unsigned.ipa" Payload
+          ls -lh "MusicWorld-unsigned.ipa"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
